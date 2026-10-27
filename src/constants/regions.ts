@@ -31,7 +31,7 @@ export const POPULAR_SCHOOLS: SchoolInfo[] = [
   {
     ATPT_OFCDC_SC_CODE: 'B10',
     ATPT_OFCDC_SC_NM: '서울특별시교육청',
-    SD_SCHUL_CODE: '7010572',
+    SD_SCHUL_CODE: '7010083',
     SCHUL_NM: '서울고등학교',
     SCHUL_KND_SC_NM: '고등학교',
     LCTN_SC_NM: '서울특별시',
@@ -40,7 +40,7 @@ export const POPULAR_SCHOOLS: SchoolInfo[] = [
   {
     ATPT_OFCDC_SC_CODE: 'B10',
     ATPT_OFCDC_SC_NM: '서울특별시교육청',
-    SD_SCHUL_CODE: '7010057',
+    SD_SCHUL_CODE: '7010059',
     SCHUL_NM: '경기고등학교',
     SCHUL_KND_SC_NM: '고등학교',
     LCTN_SC_NM: '서울특별시',

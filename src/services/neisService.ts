@@ -55,7 +55,7 @@ export function formatYMDToKorean(ymd: string): { formatted: string; dayOfWeek: 
   };
 }
 
-// Parse dish string from NEIS (e.g., "현미밥<br/>쇠고기미역국 (5.6.16)<br/>돈육간장불고기 (5.6.10.13)...")
+// Parse dish string from NEIS (handles both "(5.6.16)" and trailing "5.6.16." formats)
 export function parseDishes(rawText: string, myAllergies: number[] = []): ParsedDish[] {
   if (!rawText) return [];
 
@@ -66,19 +66,30 @@ export function parseDishes(rawText: string, myAllergies: number[] = []): Parsed
     .filter(Boolean);
 
   return lines.map((line) => {
-    // Extract allergy numbers like (5.6.16) or (1.2)
-    const allergyMatch = line.match(/\(([\d.]+)\)/);
     let allergens: number[] = [];
-    if (allergyMatch && allergyMatch[1]) {
-      allergens = allergyMatch[1]
+
+    // 1. Try finding (1.2.3) in parentheses
+    const parenMatch = line.match(/\(([\d.]+)\)/);
+    if (parenMatch && parenMatch[1]) {
+      allergens = parenMatch[1]
         .split('.')
         .map((n) => parseInt(n, 10))
         .filter((n) => !isNaN(n));
+    } else {
+      // 2. Try finding trailing numbers like "1.5.6.10." or "5."
+      const trailingMatch = line.match(/([0-9]+(?:\.[0-9]+)*\.?)$/);
+      if (trailingMatch && trailingMatch[1]) {
+        allergens = trailingMatch[1]
+          .split('.')
+          .map((n) => parseInt(n, 10))
+          .filter((n) => !isNaN(n));
+      }
     }
 
-    // Clean dish name: remove (numbers), remove asterisks or special notes
+    // Clean dish name: remove (numbers) and trailing numbers/dots, asterisks
     const cleanName = line
       .replace(/\(([\d.]+)\)/g, '')
+      .replace(/([0-9]+(?:\.[0-9]+)*\.?)$/, '')
       .replace(/[*#]/g, '')
       .trim();
 
@@ -172,7 +183,13 @@ export function parseMealItem(item: RawMealServiceItem, myAllergies: number[] = 
   };
 }
 
-// Search schools via server proxy, with fallback to direct NEIS API
+// Determine if we are on a static host (GitHub Pages, etc.)
+function isStaticHosting(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
+}
+
+// Search schools (tries direct NEIS API with fallback or server proxy)
 export async function searchSchools(
   schoolName: string,
   regionCode?: string,
@@ -184,8 +201,39 @@ export async function searchSchools(
 
   const apiKey = getStoredApiKey();
 
-  // 1. Try server proxy
-  try {
+  // Helper for direct NEIS call (supported natively with Access-Control-Allow-Origin: *)
+  const callDirect = async () => {
+    const params = new URLSearchParams({
+      Type: 'json',
+      pIndex: String(page),
+      pSize: String(pageSize),
+      SCHUL_NM: query,
+    });
+    if (regionCode) params.append('ATPT_OFCDC_SC_CODE', regionCode);
+    if (apiKey) params.append('KEY', apiKey);
+
+    const directRes = await fetch(`https://open.neis.go.kr/hub/schoolInfo?${params.toString()}`);
+    if (directRes.ok) {
+      const data = await directRes.json();
+      if (data.schoolInfo && data.schoolInfo[1]?.row) {
+        return {
+          schools: data.schoolInfo[1].row,
+          total: data.schoolInfo[0]?.head?.[0]?.list_total_count || data.schoolInfo[1].row.length,
+        };
+      }
+      if (data.RESULT) {
+        return {
+          schools: [],
+          total: 0,
+          message: data.RESULT.MESSAGE,
+        };
+      }
+    }
+    return null;
+  };
+
+  // Helper for server proxy
+  const callProxy = async () => {
     const params = new URLSearchParams({
       name: query,
       pIndex: String(page),
@@ -215,38 +263,30 @@ export async function searchSchools(
         };
       }
     }
+    return null;
+  };
+
+  // If static hosting (GitHub Pages), prefer direct call to avoid 404 proxy
+  if (isStaticHosting()) {
+    try {
+      const direct = await callDirect();
+      if (direct) return direct;
+    } catch (e) {
+      console.warn('Direct search failed on static host:', e);
+    }
+  }
+
+  // Otherwise try proxy first, then direct
+  try {
+    const proxy = await callProxy();
+    if (proxy) return proxy;
   } catch (err) {
     console.warn('Proxy school search failed, falling back to direct NEIS call:', err);
   }
 
-  // 2. Direct client fallback
   try {
-    const params = new URLSearchParams({
-      Type: 'json',
-      pIndex: String(page),
-      pSize: String(pageSize),
-      SCHUL_NM: query,
-    });
-    if (regionCode) params.append('ATPT_OFCDC_SC_CODE', regionCode);
-    if (apiKey) params.append('KEY', apiKey);
-
-    const directRes = await fetch(`https://open.neis.go.kr/hub/schoolInfo?${params.toString()}`);
-    if (directRes.ok) {
-      const data = await directRes.json();
-      if (data.schoolInfo && data.schoolInfo[1]?.row) {
-        return {
-          schools: data.schoolInfo[1].row,
-          total: data.schoolInfo[0]?.head?.[0]?.list_total_count || data.schoolInfo[1].row.length,
-        };
-      }
-      if (data.RESULT) {
-        return {
-          schools: [],
-          total: 0,
-          message: data.RESULT.MESSAGE,
-        };
-      }
-    }
+    const direct = await callDirect();
+    if (direct) return direct;
   } catch (directErr) {
     console.error('Direct school search failed:', directErr);
   }
@@ -289,32 +329,7 @@ export async function fetchMeals(
     return { meals: [], rawCount: 0, message: '급식 정보가 없습니다.' };
   };
 
-  // 1. Try server proxy
-  try {
-    const params = new URLSearchParams({
-      officeCode,
-      schoolCode,
-    });
-    if (options.date) params.append('date', options.date);
-    if (options.fromDate) params.append('fromDate', options.fromDate);
-    if (options.toDate) params.append('toDate', options.toDate);
-    if (options.mealCode) params.append('mealCode', options.mealCode);
-    if (apiKey) params.append('key', apiKey);
-
-    const res = await fetch(`/api/neis/meal?${params.toString()}`, {
-      headers: apiKey ? { 'x-neis-key': apiKey } : {},
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      return processData(data);
-    }
-  } catch (err) {
-    console.warn('Proxy meal search failed, falling back to direct NEIS call:', err);
-  }
-
-  // 2. Direct client fallback
-  try {
+  const callDirect = async () => {
     const params = new URLSearchParams({
       Type: 'json',
       pIndex: '1',
@@ -333,6 +348,53 @@ export async function fetchMeals(
       const data = await directRes.json();
       return processData(data);
     }
+    return null;
+  };
+
+  const callProxy = async () => {
+    const params = new URLSearchParams({
+      officeCode,
+      schoolCode,
+    });
+    if (options.date) params.append('date', options.date);
+    if (options.fromDate) params.append('fromDate', options.fromDate);
+    if (options.toDate) params.append('toDate', options.toDate);
+    if (options.mealCode) params.append('mealCode', options.mealCode);
+    if (apiKey) params.append('key', apiKey);
+
+    const res = await fetch(`/api/neis/meal?${params.toString()}`, {
+      headers: apiKey ? { 'x-neis-key': apiKey } : {},
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return processData(data);
+    }
+    return null;
+  };
+
+  // If on GitHub Pages, directly call NEIS API
+  if (isStaticHosting()) {
+    try {
+      const direct = await callDirect();
+      if (direct) return direct;
+    } catch (e) {
+      console.warn('Direct meal fetch failed on static host:', e);
+    }
+  }
+
+  // Otherwise try proxy first
+  try {
+    const proxy = await callProxy();
+    if (proxy) return proxy;
+  } catch (err) {
+    console.warn('Proxy meal search failed, falling back to direct NEIS call:', err);
+  }
+
+  // Fallback to direct call
+  try {
+    const direct = await callDirect();
+    if (direct) return direct;
   } catch (directErr) {
     console.error('Direct meal search failed:', directErr);
   }
@@ -342,21 +404,6 @@ export async function fetchMeals(
 
 // Verify API key
 export async function testNeisKey(key: string): Promise<{ valid: boolean; message: string }> {
-  try {
-    const res = await fetch('/api/neis/verify-key', {
-      headers: key ? { 'x-neis-key': key } : {},
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        valid: data.valid !== false,
-        message: data.message || '인증이 완료되었습니다.',
-      };
-    }
-  } catch {
-    // direct fallback test
-  }
-
   try {
     const params = new URLSearchParams({
       Type: 'json',
