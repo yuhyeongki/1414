@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Pretendard', 'Gowun Dodum', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+    background-color: #f0f7ff;
+    color: #1e293b;
+  }
+
+  h1, h2, h3, .font-cute {
+    font-family: 'Jua', 'Gowun Dodum', 'Pretendard', sans-serif;
+  }
+}
+
+/* Cute custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #e0f2fe;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #7dd3fc;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #38bdf8;
+}
+
+/* Subtle floating cloud animations */
+@keyframes float-slow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+@keyframes steam {
+  0% {
+    opacity: 0.3;
+    transform: translateY(0) scaleX(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: translateY(-8px) scaleX(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px) scaleX(1.3);
+  }
+}
+
+.animate-float {
+  animation: float-slow 4s ease-in-out infinite;
+}
+
+.animate-steam-1 {
+  animation: steam 2.4s ease-out infinite;
+}
+
+.animate-steam-2 {
+  animation: steam 2.4s ease-out infinite 0.8s;
+}
+
+/* Tray 3D bevel and reflection styling */
+.tray-shadow {
+  box-shadow: 
+    0 16px 36px -10px rgba(14, 116, 144, 0.18),
+    0 4px 12px rgba(15, 23, 42, 0.05),
+    inset 0 2px 4px rgba(255, 255, 255, 0.8),
+    inset 0 -3px 6px rgba(186, 230, 253, 0.4);
+}
+
+.compartment-shadow {
+  box-shadow: 
+    inset 0 3px 6px rgba(15, 23, 42, 0.08),
+    inset 0 1px 2px rgba(15, 23, 42, 0.06),
+    0 1px 2px rgba(255, 255, 255, 0.8);
+}
